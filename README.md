@@ -1,5 +1,9 @@
 # game-localization
 
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-orange.svg)](https://agentskills.io/)
+
 > 把任何类型的单机游戏改成你的语言 —— 不只 RPG Maker。
 
 一套给 AI Agent 用的**游戏本地化流程**：识别引擎 → 抽出文本 → 保护控制码翻译 →
@@ -80,7 +84,7 @@ mklink /J "%USERPROFILE%\.openclaw\skills\game-localization" "E:\game-localizati
 无第三方依赖，Python 3.8+：
 
 ```bash
-git clone https://github.com/<you>/game-localization
+git clone https://github.com/pcmxiao/game-localization.git
 cd game-localization/scripts
 python detect_engine.py "D:\Games\某个游戏"
 ```

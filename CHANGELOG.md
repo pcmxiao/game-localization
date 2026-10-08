@@ -49,4 +49,4 @@
 - 不处理图片里的文字（需 OCR + 重绘），不处理烧录视频
 - 加密存档（`.rgss3a`、`.pck`）内的文本不扫描
 
-[0.1.0]: https://github.com/<owner>/game-localization/releases/tag/v0.1.0
+[0.1.0]: https://github.com/pcmxiao/game-localization/releases/tag/v0.1.0
