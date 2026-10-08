@@ -4,6 +4,35 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.1] — 2026-10-09
+
+复检之后的一轮修正。主要是把「没测过的东西」标出来，而不是假装它可靠。
+
+### 新增
+
+- **英文 README**（`README.md`），中文版移到 `README.zh-CN.md`，两份互相链接
+- **`SKILL.md` 顶部英文规则速览** —— 国际用户和非中文 Agent 能先看懂规则，
+  再看下面的中文详细版
+
+### 修复
+
+- **`wolf-rpg` 的控制码正则过松**：原来用 `#` 和 `|` 当控制码，
+  而这两个字符在任意文本里都常见，会把大量正常译文误拦。
+  改为**不自动校验**并标注语法未验证 —— 宁可承认没把握，
+  也不要一个看起来在工作、其实满屏噪声的正则
+- **真正的问题：11 个引擎的控制码正则从未被验证过。** 只有 RPG Maker MV/MZ
+  在真实游戏上跑过。现已补上 12 个引擎 × 3 项测试（正例全命中 / 普通文本不误报 /
+  等值校验拦得住缺失）
+- `EngineProfile` 增加 `escape_verified` 字段；`apply_sheet.py` 用到未验证的正则时
+  会主动打印警告，而不是让使用者把「没报警」当成「没问题」
+- `README` 里的作者本地路径改为占位符 `<repo-path>`
+
+### 数字
+
+- `selftest.py` 从 36 项扩到 **74 项断言**
+- 控制码正则：**4 个已验证**（rpgmaker-mvmz / renpy / tyranoscript / gettext），
+  **7 个未验证**（会在使用时提示），**1 个不校验**（wolf-rpg）
+
 ## [0.1.0] — 2026-10-08
 
 首个版本。提炼自一个真实的 RPG Maker MZ 汉化项目
@@ -49,4 +78,5 @@
 - 不处理图片里的文字（需 OCR + 重绘），不处理烧录视频
 - 加密存档（`.rgss3a`、`.pck`）内的文本不扫描
 
+[0.1.1]: https://github.com/pcmxiao/game-localization/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/pcmxiao/game-localization/releases/tag/v0.1.0

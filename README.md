@@ -4,62 +4,75 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-orange.svg)](https://agentskills.io/)
 
-> 把任何类型的单机游戏改成你的语言 —— 不只 RPG Maker。
+**English** · [简体中文](README.zh-CN.md)
 
-一套给 AI Agent 用的**游戏本地化流程**：识别引擎 → 抽出文本 → 保护控制码翻译 →
-fail-closed 写回 → 对照备份验收。附四个能直接跑的 Python 脚本。
+> Localize any PC game into your language — not just RPG Maker.
 
-**核心主张**：引擎只影响「文本在哪、语法长什么样」，不影响流程。
-引擎特有的部分被压缩成一张小档案，加新引擎 = 加一个档案，不用重写流水线。
+An **engine-agnostic game localization pipeline** for AI agents:
+detect the engine → extract text → translate with control codes frozen →
+write back fail-closed → audit against a backup. Ships with six runnable
+Python scripts and no third-party dependencies.
+
+**The core idea:** the engine only decides *where the text lives* and
+*what its markup looks like*. It does not change the workflow. Everything
+engine-specific is compressed into a small profile, so adding an engine means
+adding one profile — not rewriting the pipeline.
 
 ---
 
-## 为什么不用现成工具
+## Why not just use an existing tool
 
-现成的游戏汉化工具不少（[RPGMTL](https://github.com/MizaGBF/RPGMTL)、
-[rvpacker-txt-rs](https://github.com/RPG-Maker-Translation-Tools/rvpacker-txt-rs)、
-[RPGMLocalizer](https://github.com/Lord0fTurk/RPGMLocalizer)、RuneTranslate…），
-它们解决的问题是真问题。这套流程补的是它们没覆盖或做得不够的地方：
+There are mature game translation tools out there
+([RPGMTL](https://github.com/MizaGBF/RPGMTL),
+[rvpacker-txt-rs](https://github.com/RPG-Maker-Translation-Tools/rvpacker-txt-rs),
+[RPGMLocalizer](https://github.com/Lord0fTurk/RPGMLocalizer), RuneTranslate, …),
+and they solve real problems. This pipeline targets the gaps they leave:
 
-| # | 差异点 | 别人怎么做 | 这里怎么做 |
+| # | Gap | Typical tool | This pipeline |
 |---|---|---|---|
-| 1 | **控制码保护范围** | 只保护 `\V \C \N \I` 等通用码 | 正则覆盖引擎该有的**全部**控制码。实测某游戏 83% 的控制码是 `\m[n]`（表情差分）和 `\z[n]`（立绘姿态）——通用保护完全漏掉这两类，改错必崩 |
-| 2 | **写入语义** | 路径找不到就新建 | **fail-closed**：路径不存在就抛异常。理由见下 |
-| 3 | **完成度判据** | 「还含假名吗」 | **与原始备份同路径逐条对比**。理由见下 |
-| 4 | **Excel 粘贴** | 多数不提 | 内建检测，dry-run 能精确定位到行号 |
-| 5 | **内容分级** | 要么全翻要么不过滤 | 系统层 / 敏感内容分开处理，跳过项留记录 |
-| 6 | **发布前清理** | 多数不提 | 独立清单，含「绝不删」列表 |
+| 1 | **Control-code coverage** | Protects the generic set: `\V \C \N \I` | Regex-covers **every** code the engine actually uses. In one measured title, 83% of all control codes were `\m[n]` (face variants) and `\z[n]` (sprite poses) — the generic set misses both, and getting them wrong crashes the game |
+| 2 | **Write semantics** | Missing path → create it | **Fail-closed:** a missing path raises. Rationale below |
+| 3 | **Completion criterion** | "Does it still contain kana?" | **Path-by-path comparison against the pristine backup.** Rationale below |
+| 4 | **Spreadsheet paste** | Usually not addressed | Built-in detection; `--dry` pinpoints the exact row |
+| 5 | **Content policy** | All-or-nothing | System text and sensitive content handled separately; skips are recorded |
+| 6 | **Pre-release cleanup** | Usually not addressed | Dedicated checklist with a never-delete list |
 
-### 关于第 2 条
+### On gap 2
 
-早先的写入函数用 `re.findall(r'([^\[\]]+)|\[(\d+)\]', path)` 解析路径。
-对 `terms.messages.autosave` 这种没有方括号的键，它会把**整串**当成一个键，
-然后在根字典里静默新建这个键。**JSON 依然合法，不抛异常，不报错** —— 直到 diff 才发现。
+The original writer parsed paths with
+`re.findall(r'([^\[\]]+)|\[(\d+)\]', path)`.
+For a key without brackets like `terms.messages.autosave`, that treats the
+**whole string as one key** and silently creates it in the root object.
+**The JSON stays valid. Nothing raises. Nothing logs.** You only find out from a diff.
 
-`fail-closed` 的意思就是：宁可吵一点，也不要静默写坏。
+*Fail-closed* means: prefer noise over a silent corruption.
 
-### 关于第 3 条
+### On gap 3
 
-用「还含假名吗」判断翻没翻完，会同时犯两个方向的错：
+Judging completion by "does it still contain kana?" fails in both directions:
 
-- **漏** —— 全汉字的外语词一个都检测不到。「勉強」「料理」「元気」「statistics」通篇汉字，
-  假名为零，看起来是「翻好了」，其实一个字没动。
-- **误** —— 目标语言里合法的内容会报警。中文的间隔号「李·爱铃」、日文长音符「ーーー」、
-  有意保留的角色原名，全都会被当成「没翻」。
+- **False negatives** — Japanese words written entirely in kanji are invisible to it.
+  「勉強」「料理」「元気」「statistics」 contain zero kana; they look translated and are not.
+- **False positives** — perfectly legal target-language content trips it.
+  The Chinese middle dot in 「李·爱铃」, the Japanese long vowel mark 「ーーー」,
+  a deliberately preserved character name.
 
-实测：某次扫描残留 73 条，逐条核实后**只有 35 条是真漏翻**，其余 38 条是保留的原名、
-名字前缀、中点和长音符。**「残留 N 条」不等于「漏翻 N 条」。**
+Measured: one scan reported 73 leftovers; after checking each one,
+**only 35 were genuinely untranslated** — the other 38 were preserved names,
+name prefixes, middle dots and long vowel marks.
+**"N leftovers" ≠ "N untranslated".**
 
-`audit.py` 报的是候选，不是判决，而且会把明显不用管的先自动排除掉
-（实测把 25,175 条「一致」压到 545 条待看，24,627 条是纯 ASCII 资源标识符）。
+`audit.py` reports candidates, not verdicts, and auto-triages the obvious noise
+first (25,175 "identical" entries reduced to 545 needing review —
+24,627 of them were pure ASCII asset identifiers).
 
 ---
 
-## 安装
+## Install
 
-这个仓库同时是标准 Agent Skill 和一组独立 CLI 脚本，用法二选一。
+The repo is both a standard Agent Skill and a set of standalone CLI scripts.
 
-### 作为 Agent Skill
+### As an Agent Skill
 
 ```
 your-skills-dir/
@@ -70,160 +83,177 @@ your-skills-dir/
     └── assets/
 ```
 
-放进所用 Agent 的技能目录即可。支持 Claude Code / OpenClaw / WorkBuddy 等
-遵循 [Agent Skills 开放标准](https://agentskills.io/) 的客户端。
+Drop it into your agent's skills directory. Works with any client following the
+[Agent Skills open standard](https://agentskills.io/) — Claude Code, OpenClaw,
+WorkBuddy, and others.
 
-Windows 上如果仓库放在别的盘，用目录联接免去复制：
+> ⚠️ `SKILL.md` and the `references/` docs are written in Chinese (the pipeline
+> was validated on Japanese → Chinese). The scripts, their CLI output, and the
+> engine profiles are language-neutral. An English overview of the rules is at
+> the top of `SKILL.md`.
+
+On Windows, if you keep the repo on another drive, a directory junction avoids
+copying:
 
 ```cmd
-mklink /J "%USERPROFILE%\.openclaw\skills\game-localization" "E:\game-localization"
+mklink /J "%USERPROFILE%\.openclaw\skills\game-localization" "<repo-path>"
 ```
 
-### 作为独立脚本
+### As standalone scripts
 
-无第三方依赖，Python 3.8+：
+No third-party dependencies. Python 3.8+:
 
 ```bash
 git clone https://github.com/pcmxiao/game-localization.git
 cd game-localization/scripts
-python detect_engine.py "D:\Games\某个游戏"
+python detect_engine.py "/path/to/game"
 ```
 
 ---
 
-## 四步用法
+## The five steps
 
-### 1. 认引擎
+### 1. Detect the engine
 
 ```bash
-python scripts/detect_engine.py <游戏目录>
+python scripts/detect_engine.py <game-dir>
 ```
 
-输出引擎名 + **分层**（这一步比引擎名更重要）：
+Prints the engine **and the tier** (the tier matters more than the name):
 
-| 层 | 含义 | 处理 |
+| Tier | Meaning | How to handle |
 |---|---|---|
-| **L0** | 明文文本 | 直接改 ✅ |
-| **L1** | 需要解包 | 专用工具展开 → 改明文 → 重打包 |
-| **L2** | 二进制 / 加密 | 专用解包器；优先找「导出松散文件覆盖」路线，别改原包 |
-| **L3** | 编译进 exe | 改不了 → Textractor / LunaTranslator / XUnity AutoTranslator |
-| **L4** | 物理不可能 | 图片里烤死的字、烧录字幕、主机 ROM → OCR 重绘 / 模拟器 Agent |
+| **L0** | Plaintext | Edit directly ✅ |
+| **L1** | Packed | Unpack with a dedicated tool → edit → repack |
+| **L2** | Binary / encrypted | Dedicated unpacker; prefer a loose-file override over repacking |
+| **L3** | Compiled into the binary | Not editable → external hooks: Textractor / LunaTranslator / XUnity AutoTranslator |
+| **L4** | Physically impossible | Text baked into images, burned-in subtitles, console ROMs → OCR + redraw, or an emulator agent |
 
-**提前知道是 L4，比翻两小时才发现强。**
+**Knowing it is L4 up front beats discovering it two hours in.**
 
-### 2. 抽取
+### 2. Extract
 
 ```bash
-python scripts/extract_sheet.py --root <游戏目录> --engine auto --out sheet.csv
+python scripts/extract_sheet.py --root <game-dir> --engine auto --out sheet.csv
 ```
 
-产出统一中间格式，Excel 可直接打开：
+Produces one engine-neutral sheet, openable straight in Excel:
 
 ```
 id,carrier,file,path,src,text,status,note
 ```
 
-只抽**玩家可见**文本。事件名、`note` 注释、资源标识符不进表 ——
-玩家看不见，翻了只增加风险。
+Only **player-visible** text is extracted. Event names, `note` comments and
+asset identifiers stay out — nobody sees them, so translating them only adds risk.
 
-### 3. 翻译 → 4. 写回
+### 3. Translate → 4. Write back
 
-用 Excel / WPS 填 `text` 列，**其它列别动**。
-
-```bash
-# 先验，永远先验
-python scripts/apply_sheet.py --root <游戏目录> --sheet sheet.csv --dry
-
-# 确认无误再写（自动备份到游戏目录之外）
-python scripts/apply_sheet.py --root <游戏目录> --sheet sheet.csv
-```
-
-`--dry` 会检查控制码多重集是否相等、路径是否存在、原文是否对得上。
-从表格粘贴会导致**整列错位**（实测中招过两次，且肉眼看不出来），dry 能精确定位到行号。
-
-### 5. 验收
+Fill the `text` column in Excel / LibreOffice / any spreadsheet.
+**Do not touch the other columns.**
 
 ```bash
-python scripts/audit.py --root <游戏目录> --backup <备份目录> --report audit.json
+# Always verify first
+python scripts/apply_sheet.py --root <game-dir> --sheet sheet.csv --dry
+
+# Then write (backs up outside the game directory automatically)
+python scripts/apply_sheet.py --root <game-dir> --sheet sheet.csv
 ```
 
-对照备份逐条比对，输出四类清单：
+`--dry` checks that the control-code multisets match, that every path exists,
+and that the source text still matches. Pasting from a spreadsheet **shifts whole
+columns** (this happened twice in practice and is invisible to the eye);
+`--dry` pinpoints the exact row.
+
+### 5. Audit
+
+```bash
+python scripts/audit.py --root <game-dir> --backup <backup-dir> --report audit.json
+```
+
+Compares against the backup and reports four buckets:
 
 ```
-条目总数                          77257
-  ✓ 已改动                        51842
-  · 与原文一致但不用管            24630  ← 自动分诊排除
-  ⚠ 与原文一致且需要判断            545  ← 逐条看
-  ⚠ 已改动但仍含外语字符             38  ← 粗筛，需核实
-  ⚠ 文本槽里装着代码                 0  ← 别乱翻
+total entries                     77257
+  ✓ changed                       51842
+  · identical but ignore           24630  ← auto-triaged
+  ⚠ identical, needs judgement       545  ← review each
+  ⚠ changed but still foreign        38  ← coarse filter, verify
+  ⚠ code in a text slot               0  ← do not touch
 ```
 
-最后按 [`references/release.md`](references/release.md) 清理。
+Then clean up per [`references/release.md`](references/release.md).
 
 ---
 
-## 加一个新引擎
+## Adding an engine
 
-引擎档案只回答五个问题：
+A profile answers exactly five questions:
 
-| 字段 | 含义 |
+| Field | Meaning |
 |---|---|
-| `detect` | 靠哪些目录 / 文件特征认出它 |
-| `open` | 明文还是要先解包 |
-| `carriers` | 文本在哪些文件的哪些字段 |
-| `freeze` | 该引擎的控制码 / 标记语法 |
-| `seal` | 写回什么产物（覆盖目录 / patch 文件 / 重打包） |
+| `detect` | Which files/folders identify it |
+| `open` | Plaintext, or needs unpacking |
+| `carriers` | Which files and fields hold text |
+| `freeze` | The engine's markup / control-code syntax |
+| `seal` | What to write back (override dir / patch file / repack) |
 
-**中间那张翻译表是引擎无关的** —— 这就是解耦点。写一个 handler，
-产出 `(file, path, text)`，后面的 `apply_sheet.py` 和 `audit.py` 都能直接用。
+**The sheet in the middle is engine-neutral** — that is the decoupling point.
+Write one handler that yields `(file, path, text)` and both `apply_sheet.py`
+and `audit.py` work immediately.
 
-没档案也不影响干活：对任何明文容器（JSON / CSV / INI / YAML / Lua / `.po`），
-[`references/carriers.md`](references/carriers.md) 给了通用兜底写法 ——
-深度遍历 + 字段名启发式，现场就能写一个。
+No profile is not a blocker either: for any plaintext container
+(JSON / CSV / INI / YAML / Lua / `.po`),
+[`references/carriers.md`](references/carriers.md) documents a generic fallback —
+deep traversal plus field-name heuristics — you can write on the spot.
 
-### 已内置
+### Built in
 
-RPG Maker MV/MZ · 通用明文兜底 · gettext
+RPG Maker MV/MZ · generic plaintext fallback · gettext
 
-其余引擎的文本位置见 [`references/carriers.md`](references/carriers.md)，
-控制码语法见 [`references/freeze-restore.md`](references/freeze-restore.md)。
+Text locations for other engines are in
+[`references/carriers.md`](references/carriers.md); markup syntax is in
+[`references/freeze-restore.md`](references/freeze-restore.md).
 
 ---
 
-## 目录
+## Layout
 
 ```
 game-localization/
-├── SKILL.md                      # 流程与铁律（Agent 读这个）
+├── SKILL.md                      # The pipeline and its hard rules (what agents read)
 ├── scripts/
-│   ├── gameloc_core.py           # 与引擎无关的核心
-│   ├── detect_engine.py          # 认引擎 + 判分层
-│   ├── extract_sheet.py          # 抽取到翻译表
-│   ├── apply_sheet.py            # fail-closed 写回
-│   └── audit.py                  # 对照备份验收
+│   ├── gameloc_core.py           # Engine-neutral core
+│   ├── detect_engine.py          # Identify engine + tier
+│   ├── extract_sheet.py          # Extract into the translation sheet
+│   ├── apply_sheet.py            # Fail-closed write-back
+│   ├── audit.py                  # Verify against the backup
+│   └── selftest.py               # 74 assertions, one per real-world failure
 ├── references/
-│   ├── carriers.md               # 各引擎文本在哪
-│   ├── freeze-restore.md         # 控制码冻结与还原
-│   ├── pitfalls.md               # 实战踩坑清单
-│   ├── release.md                # 发布前清理
-│   └── engines/index.md          # 引擎分层与索引
+│   ├── carriers.md               # Where each engine keeps its text
+│   ├── freeze-restore.md         # Control-code freezing and restoring
+│   ├── pitfalls.md               # Real-world failure catalogue
+│   ├── release.md                # Pre-release cleanup
+│   └── engines/index.md          # Tiers, index, how to add an engine
 ├── assets/
-│   └── glossary.template.csv     # 术语表模板
+│   └── glossary.template.csv     # Glossary template
 └── evals/
     └── evals.json
 ```
 
 ---
 
-## 这个流程是怎么来的
+## Where this came from
 
-从一个真实的 RPG Maker MZ 汉化项目提炼：77,257 条可见文本，44,158 处控制码
-（其中 `\m` 和 `\z` 占 83%），前后发现并修掉了十几个**静默失败**的问题 ——
-路径解析吞掉键名、扫描脚本忘了传 `events` 导致 139 张地图全部「零残留」的假象、
-筛查正则匹配到空串导致 498 行全假阳性、词根匹配把「メイク」（化妆）判成露骨内容。
+Distilled from a real RPG Maker MZ localization: 77,257 visible strings and
+44,158 control codes (83% of them `\m` and `\z`). Along the way we found and
+fixed a dozen **silent** failures — the path parser swallowing a key name, a
+scan script forgetting to pass `events` so 139 maps reported a false "zero
+leftovers", a screening regex matching the empty string and flagging 498 rows,
+and a substring match classing 「メイク」 (makeup) as explicit content.
 
-这些全都在 [`references/pitfalls.md`](references/pitfalls.md) 里。
-仓库里不含任何游戏文本、译文或术语表 —— 每个游戏的译文都是那个游戏独有的，不属于工具。
+All of them are in [`references/pitfalls.md`](references/pitfalls.md).
+This repository contains no game text, no translations and no per-game glossaries —
+a game's translation belongs to that game's authors, not to the tool.
 
 ---
 

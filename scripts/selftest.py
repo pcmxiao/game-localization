@@ -226,6 +226,83 @@ def t_generic():
 
 t_generic()
 
+# ---------------------------------------------------------------- 各引擎控制码
+print("\n[各引擎控制码正则]")
+
+# 每个引擎的真实语法样例 + 必须不该命中的普通散文。
+# 这张表就是那 11 个没跑过真实游戏的正则的唯一保障 ——
+# 没它的话，像「拿 # 和 | 当 Wolf RPG 控制码」这种错会一直睡在那里。
+_ESCAPE_CASES = {
+    "rpgmaker-mvmz": (
+        [r"\V[10]的值", r"\N[3]", r"\m[2]表情", r"\z[0010]姿态",
+         r"\ac\色\xxx\}", r"\C[5]", r"\G", r"\item[7]", r"\{等待\}", r"\^"],
+        ["这是普通的中文台词。", "Hello world, 123.", "角色名是夏乃。"],
+    ),
+    "rpgmaker-xp-vx-ace": (
+        [r"\C[3]", r"$HP", r"\C[2]受伤了", "^{攻击}"],
+        ["这是普通的中文句子。"],
+    ),
+    "renpy": (
+        ["{i}待って{/i}", "{w=0.4}pause", "{color=#ff0000}红", "{/i}",
+         "%%", "[[R0]]占位"],
+        ["这是普通的中文台词。", "括号（中文）里的字"],
+    ),
+    "tyranoscript": (
+        ["[mark color=#ff0000]台词[/mark]", "[link target=se_01]选项[/link]",
+         "[s]跳到[/s]", "[l]", "[cm name=\"三个字\"]"],
+        ["这是普通的中文台词。", "【中文括号】里的内容"],
+    ),
+    "gettext": (
+        ["%s 的值", "%1$s 和 %d", "{count, plural, one{# item} other{# items}}",
+         "{name}", "%d%%"],
+        ["这是普通的中文句子。"],
+    ),
+    "nscripter": (
+        [r"\n换行", "%s 的值"],
+        ["这是普通的中文句子。"],
+    ),
+    "godot": (
+        ["{0} 和 [param]", "%s 的值"],
+        ["这是普通的中文句子。"],
+    ),
+    "electron-nwjs": (
+        ["${name} 的值", "{count} 个", "%s 的值"],
+        ["这是普通的中文句子。"],
+    ),
+    "kirikiri": (
+        ["[jump target=se_01]", "[s]", "[l]", "$v 是变量"],
+        ["这是普通的中文句子。", "【中文括号】"],
+    ),
+    "unity": (
+        ["<color=#ff0000>", "<sprite=0>", "</color>",
+         "\\n换行", "{0}", "\\u4F60"],
+        ["这是普通的中文句子。"],
+    ),
+    "unreal": (
+        ["<b>粗体</b>", "{0}", "\\n"],
+        ["这是普通的中文句子。"],
+    ),
+}
+
+
+def t_engine_escapes():
+    from gameloc_core import ENGINES
+    import re as _re
+    for key, (pos, neg) in _ESCAPE_CASES.items():
+        prof = ENGINES.get(key)
+        if prof is None or prof.escape is None:
+            continue
+        miss = [s for s in pos if not _re.search(prof.escape, s)]
+        fp = [s for s in neg if _re.search(prof.escape, s)]
+        check(f"{key} 正例全命中（{len(pos)} 条）", not miss, f"漏: {miss}")
+        check(f"{key} 普通文本不误报", not fp, f"误: {fp}")
+        # 等值校验必须真的能拦住：原文有控制码，译文一个都没有
+        ok, _ = verify_escape(pos[0], "完全没有控制码的译文", prof.escape)
+        check(f"{key} 等值校验拦得住缺失", not ok)
+
+
+t_engine_escapes()
+
 # ---------------------------------------------------------------- 结论
 print()
 print("=" * 60)
@@ -234,4 +311,16 @@ if FAILS:
     for f in FAILS:
         print(f"    - {f}")
     sys.exit(1)
+
+# 哪些引擎的控制码正则还没在真实游戏上验证过。
+# 不是错误，但使用者应该知道 —— 否则会把「没报警」当成「没问题」。
+from gameloc_core import ENGINES as _E  # noqa: E402
+_unverified = sorted(k for k, p in _E.items()
+                     if p.escape is not None and not p.escape_verified)
+if _unverified:
+    print()
+    print(f"⚠ {len(_unverified)} 个引擎的控制码正则未在真实游戏上验证：")
+    print(f"    {', '.join(_unverified)}")
+    print("  （语法正确且有测试，但没在真实游戏上跑过。首次使用请人工抽查。）")
+
 print("✓ 全部通过")

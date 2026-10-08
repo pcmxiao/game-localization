@@ -93,8 +93,13 @@ def main():
     print(f"待写入    : {len(rows)} 行（另有 {n_skipped} 行 status=skipped 已跳过）")
     print(f"模式      : {'dry-run，未落盘' if (args.dry or args.only_verify) else '实际写入'}")
     if engine.escape is None:
-        print("⚠️  该引擎没有配置控制码语法，跳过控制码校验。"
-              "如果你在文本里见过 \\ 或 {} 之类的东西，请手动核对。")
+        print("⚠️  该引擎没有配置控制码语法，**跳过控制码校验**。")
+        print("   如果你在文本里见过 \\ 或 {} 之类的东西，请手动核对。")
+    elif not engine.escape_verified:
+        print("⚠️  该引擎的控制码正则**未在真实游戏上验证过**。")
+        print("   它可能过松（拦下合法译文）或过紧（放过被改坏的控制码）。")
+        print("   首次跑完请人工抽查控制码是否原样保留，确认后用 ")
+        print("   EngineProfile(..., escape_verified=True) 标记，并补一个测试用例。")
     print()
 
     # ---- 2. 控制码等值校验 ----

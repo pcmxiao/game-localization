@@ -72,6 +72,7 @@ class EngineProfile:
         escape,         # 匹配控制码/标记的正则（用于等值校验）
         root_globs,     # 文本根目录候选
         notes="",
+        escape_verified=False,   # 这条正则是否在真实游戏上验证过
     ):
         self.key = key
         self.title = title
@@ -80,6 +81,9 @@ class EngineProfile:
         self.escape = re.compile(escape) if escape else None
         self.root_globs = root_globs or []
         self.notes = notes
+        # 有没有在真实游戏上跑过。没跑过的正则可能过松（拦下合法译文）
+        # 或过紧（放过被改坏的控制码）。两种都不能当它不存在。
+        self.escape_verified = escape_verified
 
     def detect(self, root):
         try:
@@ -131,6 +135,7 @@ _reg(EngineProfile(
     escape=_RGMMZ_ESCAPE,
     root_globs=["data", "www/data"],
     notes="明文 UTF-8 JSON。events 指令码 101/401/405 文本、102 选项、402 分支标签对应不改。",
+    escape_verified=True,
 ))
 
 _reg(EngineProfile(
@@ -149,10 +154,11 @@ _reg(EngineProfile(
     layer="L0",
     detect=lambda r: 1.0 if (_has(r, "game") and (_has(r, "game", "options.rpy")
                                                 or _has(r, "game", "scripts.rpy"))) else 0.0,
-    # {tag} {tag=arg} {tag}body{/tag} 加上 [/tag] 闭合
+    # {tag} {tag=arg}　{/tag} 加上 [/tag] 闭合
     escape=r'\{/?[a-zA-Z_][^}]*\}|%%|\[\[[^\]]+\]\]',
     root_globs=["game"],
     notes=".rpy 是明文；只有 .rpyc/.rpa 时先跑 unrpyc / rpatool 展开。",
+    escape_verified=True,
 ))
 
 _reg(EngineProfile(
@@ -163,6 +169,7 @@ _reg(EngineProfile(
     escape=r'\[/?[a-z_][^\]\[]*(?:=[^\]]*)?\]',
     root_globs=["data", "tyrano"],
     notes="参数里也含文本（[cm name=\"..\"]），翻值不翻参数名和 target。",
+    escape_verified=True,
 ))
 
 _reg(EngineProfile(
@@ -173,6 +180,7 @@ _reg(EngineProfile(
     escape=r'%\d*\$?[sdxoufgecp]|%[0-9.#]*[a-zA-Z]|\{[a-zA-Z_][^}]*\}|<\d+>|%%|\bn\b',
     root_globs=["locale", "locales", "po", "lang"],
     notes="结构行（#: #. #|）不要动；msgid_plural / msgstr[n] 要成对处理。",
+    escape_verified=True,
 ))
 
 _reg(EngineProfile(
@@ -184,6 +192,8 @@ _reg(EngineProfile(
     escape=r'\\[a-zA-Z]+|%[0-9]*\$?[a-zA-Z]',
     root_globs=["."],
     notes="# 开头是命令、* 开头是标签，都不能翻。乱码版要先还原编码。",
+    # 未在真实游戏上验证过
+    escape_verified=False,
 ))
 
 _reg(EngineProfile(
@@ -226,9 +236,13 @@ _reg(EngineProfile(
     title="Wolf RPG Editor",
     layer="L2",
     detect=lambda r: 1.0 if _has(r, "Data", "CommonEvent.dat") else 0.0,
-    escape=r'\\[a-zA-Z]+|\$[a-zA-Z]+|#|\|',
+    # 之前写过 `#|\|`，太松：`#` 和 `|` 是任意文本里都常见的字符，
+    # 会把正常译文大量误拦。宁可标记成「语法未验证，跳过自动校验」，
+    # 也不要一个看起来在工作、其实满屏噪声的正则。
+    escape=None,
     root_globs=["."],
     notes="无 markup 可冻结。用 UberWolf 解包，再重打包成 .wolf。",
+    escape_verified=False,
 ))
 
 _reg(EngineProfile(

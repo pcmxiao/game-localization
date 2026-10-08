@@ -3,6 +3,77 @@ name: game-localization
 description: Localize any PC game: detect engine, extract text, translate with control codes frozen, write back fail-closed, audit. Use for 汉化/翻译/本地化.
 ---
 
+# Game Localization (multi-engine)
+
+> **Language note.** This overview is in English. The detailed rules below are in
+> Chinese (the pipeline was validated on Japanese → Chinese); scripts, CLI output
+> and engine profiles are language-neutral. Read this section for the rules, then
+> follow the Chinese detail — it says the same things with reasoning and examples.
+
+Translate a game into a target language. The process is **engine-agnostic**: after
+step 1 everything is identical across engines. An engine only decides *where the
+text lives* and *what its markup looks like*.
+
+Use this when the user says 汉化 / 翻译 / 本地化 / "localize this game" / "can this
+be translated", or points at a game directory and asks where its text is.
+
+## Hard rules
+
+Each of these was paid for with a broken game file. Violating one means either the
+game no longer launches, or control codes leak into your translations.
+
+1. **Completion is judged path-by-path against the pristine backup — never by
+   script detection.** Character-set checks miss Japanese written entirely in
+   kanji (勉強, 料理, statistics) and false-positive on legal target-language
+   characters (the middle dot in「李·爱铃」). One scan reported 73 leftovers;
+   only 35 were real. "N leftovers" ≠ "N untranslated".
+2. **Writes must fail closed.** A path that does not exist raises. Any
+   "create it if missing" logic is the hole that silently writes junk keys into
+   perfectly valid JSON.
+3. **Freeze every control code, restore it, and verify the multiset is identical.**
+   The generic `\V \C \N \I` set is not enough: in one measured title, 83% of
+   all codes were `\m[n]` (face variants) and `\z[n]` (sprite poses) — the generic
+   set misses both and breaks the game.
+4. **Always `--dry` before writing.** Pasting from a spreadsheet shifts whole
+   columns, invisibly. The dry run pinpoints the row.
+5. **Write by path, never by search-and-replace on text.** Deduplicate, map by
+   dedup id, then fill every occurrence.
+6. **Read back and diff after writing.** Do not trust a "success" return value.
+7. **Never translate identifiers.** Plugin command names, plugin parameter
+   *keys*, note tag names, resource filenames, lookup keys, branch labels.
+   Translating them disables features silently.
+
+## Pipeline
+
+1. **Back up** outside the game directory. Nothing gets modified before the backup exists.
+2. **Detect the engine and its tier** (`python scripts/detect_engine.py <game>`).
+3. **Extract** player-visible text into one engine-neutral CSV
+   (`extract_sheet.py`).
+4. **Translate**, carrying one glossary as the single source of truth.
+5. **Write back fail-closed** (`apply_sheet.py --dry`, then without `--dry`).
+6. **Audit** against the backup (`audit.py`) — candidates, not verdicts.
+7. **Clean up** before release (`references/release.md`).
+
+## Engine tiers
+
+| Tier | What | How |
+|---|---|---|
+| **L0** | Plaintext | Edit directly ✅ |
+| **L1** | Packed | Unpack → edit → repack |
+| **L2** | Binary / encrypted | Dedicated unpacker; prefer a loose-file override |
+| **L3** | Compiled into the binary | Not editable → Textractor / LunaTranslator / XUnity AutoTranslator |
+| **L4** | Physically impossible | Text in images, burned-in subtitles, console ROMs → OCR + redraw, or an emulator agent |
+
+Tell the user the tier **first**. Learning it is L4 after two hours of work is worse
+than learning it at minute one.
+
+Adding an engine = adding one profile answering five questions
+(`detect` / `open` / `carriers` / `freeze` / `seal`). See
+`references/engines/index.md`. A missing profile is not a blocker — plaintext
+containers have a generic fallback in `references/carriers.md`.
+
+---
+
 # 游戏汉化（多引擎）
 
 把一个外语游戏改成目标语言。核心是**引擎无关**：抽取之后的所有环节都一样，
