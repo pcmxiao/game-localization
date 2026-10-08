@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 工作产物 —— 这些是每个项目独有的，不该进版本库
+sheet.csv
+translate_sheet.csv
+audit.json
+*_sheet.csv
+*.tsv
+batches/
+gameloc_backups/
+
+# 编辑器 / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+*.bak
+*.orig
+
+# 游戏数据（万一是有人把 sample 放进来了）
+data/
+www/data/
+*.json.gz

@@ -1,0 +1,76 @@
+{
+  "skill_name": "game-localization",
+  "note": "这些是真实的测试提示，覆盖技能声明里提到的各种触发方式。跑之前先确认游戏目录已准备好。",
+  "evals": [
+    {
+      "id": 0,
+      "name": "认引擎并判断可汉化程度",
+      "prompt": "这是我要汉化的游戏目录，D:\\Games\\some_vn。里面文字全是日文，帮我看看能不能汉化，要改哪些文件？",
+      "expected_output": "跑 detect_engine.py 给出引擎与分层；明确告知落在哪一层以及该用什么路线，而不是直接开始改文件",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "RPG Maker 完整流程",
+      "prompt": "帮我把这个 RPG Maker MZ 游戏的文本抽出来做成翻译表，D:\\Games\\rmmz_test。我想翻成中文，翻译我自己填。",
+      "expected_output": "按七步流水线走：备份 → 抽取 → 交付 CSV 并说明只填 text 列 → 提示先 dry 再写",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "翻译表填完之后",
+      "prompt": "翻译表填好了，sheet.csv 在当前目录。游戏目录是 D:\\Games\\rmmz_test。帮我写回去。",
+      "expected_output": "先跑 --dry，把控制码不匹配和路径错误的行列出来；dry 通过后才询问是否真正写入",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "验收：怎么算翻完",
+      "prompt": "我汉化完了，怎么检查有没有漏翻的？",
+      "expected_output": "跑 audit.py 对照备份；解释为什么不能用假名检测当判据；提醒「残留 N 条 ≠ 漏翻 N 条」",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "未知引擎",
+      "prompt": "这游戏不知道什么引擎，D:\\Games\\mystery。你看看文本在哪，能不能翻？",
+      "expected_output": "detect 认不出时给出排查方向（语言目录、特征文件）；确认是明文容器后用 generic-plaintext 兜底抽取",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "图片里的文字",
+      "prompt": "这个游戏对话都翻好了，但是菜单背景图上的日文还在，能处理吗？",
+      "expected_output": "诚实说明这是 L4，需要 OCR + 重绘 + 重打包；不要假装能做",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "编译进产物的游戏",
+      "prompt": "D:\\Games\\unity_3d 这个 Unity 游戏我想汉化，能直接改文件吗？",
+      "expected_output": "说明 L1/L3 的区别；建议外挂方案（XUnity AutoTranslator / Textractor）；诚实说明 IL2CPP 常改不动",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "控制码被破坏",
+      "prompt": "我把翻译写进去了，但是游戏里对话的表情不切了，角色名也显示不出来，只有文字。怎么回事？",
+      "expected_output": "第一反应是控制码被破坏；检查 \\m[n] \\z[n] \\N[n] 是否原样保留；提出用脚本校验而不是手工找",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "术语一致性",
+      "prompt": "翻到一半发现同一个角色名在前面几批里被我译成了三个不同的名字，怎么统一？",
+      "expected_output": "引入术语表作为单一本源；回填修正已写入的条目；提醒术语表要每批都带",
+      "files": []
+    },
+    {
+      "id": 9,
+      "name": "从表格粘贴后串行",
+      "prompt": "我翻译完贴回 CSV 了，你直接写回去吧。",
+      "expected_output": "拒绝跳过 --dry；解释 Excel 粘贴会导致整列错位且肉眼看不出；跑 dry 定位到具体行号",
+      "files": []
+    }
+  ]
+}

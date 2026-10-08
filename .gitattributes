@@ -1,0 +1,16 @@
+# 统一用 LF。Windows 上 checkout 时转成 CRLF，提交时转回 LF，
+# 避免同一份文件在不同机器上产生整文件级别的 diff。
+* text=auto eol=lf
+
+*.md text eol=lf
+*.py text eol=lf
+*.csv text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+
+# 二进制，明确不参与转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
+*.whl binary
