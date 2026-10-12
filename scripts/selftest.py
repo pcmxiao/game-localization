@@ -2,9 +2,15 @@
 """
 核心自检。跑法: python scripts/selftest.py
 
-这些不是「锦上添花的测试」—— 每一条都对应一个真的踩过的坑。
-特别是 test_extract_returns_nonzero：忘传 events 导致 139 张地图
-全部报告「零残留」的假象，只有这种非空断言才抓得住。
+零依赖 —— 只用标准库。这个脚本就是使用者会跑的那个入口，
+所以它不能要求装任何第三方包（CI 里有一个专门的 job 盯这一点）。
+
+这里的断言对应一个个真的踩过的坑。特别是：
+  · test_extract_returns_nonzero —— 忘传 events 导致 139 张地图
+    全部报告「零残留」的假象，只有这种非空断言才抓得住
+  · 备份定位一节 —— 找不到备份时 audit 会给一份「假全清」报告
+
+端到端测试在 tests/（需要 pytest）：路径往返、批次原子性、退出码。
 """
 
 import os
@@ -13,7 +19,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gameloc_core import (  # noqa: E402
-    SheetError, get_path, parse_path, resolve_engine, script_score,
+    SheetError, parse_path, resolve_engine, script_score,
     set_path, verify_escape,
 )
 
@@ -75,7 +81,7 @@ t_parse()
 print("\n[控制码等值校验]")
 eng = resolve_engine("rpgmaker-mvmz")
 
-ok, why = verify_eng = verify_escape(r"\m[1]\z[2]\N[3]台词", r"\m[1]\z[2]\N[3]中文", eng.escape)
+ok, why = verify_escape(r"\m[1]\z[2]\N[3]台词", r"\m[1]\z[2]\N[3]中文", eng.escape)
 check("控制码一致 → 通过", ok, why)
 
 ok, why = verify_escape(r"\m[1]\z[2]台词", "中文", eng.escape)
@@ -302,6 +308,71 @@ def t_engine_escapes():
 
 
 t_engine_escapes()
+
+# ---------------------------------------------------------------- 路径转义
+print("\n[路径转义 —— 键名含点号/方括号]")
+
+
+def t_escape():
+    """键名里的 '.' / '[' / ']' 必须能表达，否则写回会落到错误的位置。
+
+    最坏情况：嵌套与扁平两种解释同时存在时，静默写错还不报错。
+    """
+    from gameloc_core import escape_path_token
+
+    check("转义后的点号是一个键",
+          parse_path(r"ui\.title") == [("key", "ui.title")])
+    check("转义点号与分隔符共存",
+          parse_path(r"a\.b.c") == [("key", "a.b"), ("key", "c")])
+    check("方括号可转义成字面量",
+          parse_path(r"x\[0\]") == [("key", "x[0]")])
+
+    check("escape_path_token 往返一致",
+          parse_path(escape_path_token("a.b.c")) == [("key", "a.b.c")])
+
+    # 歧义场景：两种解释都存在时，必须各写各的
+    obj = {"a.name": "flat", "a": {"name": "nested"}}
+    from gameloc_core import get_path
+    check("扁平键读得到", get_path(obj, r"a\.name") == "flat")
+    check("嵌套键读得到", get_path(obj, "a.name") == "nested")
+    set_path(obj, r"a\.name", "FLAT")
+    check("写扁平键不碰嵌套键", obj["a"]["name"] == "nested")
+
+
+t_escape()
+
+# ---------------------------------------------------------------- 备份定位
+print("\n[备份目录定位 —— 防止「假全清」]")
+
+
+def t_backup_root():
+    """备份抽出 0 条时 audit 会给一份「全部是新增条目」的假报告。
+
+    这里覆盖三种传法都必须定位到同一个数据目录。
+    """
+    import json as _json
+    from gameloc_core import find_backup_root
+
+    with tempfile.TemporaryDirectory() as d:
+        data = os.path.join(d, "tag_20260101_000000", "data")
+        os.makedirs(data)
+        with open(os.path.join(data, "System.json"), "w", encoding="utf-8") as f:
+            _json.dump({}, f)
+
+        ts = os.path.dirname(data)
+        check("数据目录本身 → 原样返回",
+              os.path.normcase(find_backup_root(data)) == os.path.normcase(data))
+        check("时间戳目录 → 向下找到 data",
+              os.path.normcase(find_backup_root(ts)) == os.path.normcase(data))
+        check("父目录 → 向下找到 data",
+              os.path.normcase(find_backup_root(d)) == os.path.normcase(data))
+
+    with tempfile.TemporaryDirectory() as d:
+        check("空目录 → 原样返回（由 audit 负责报错）",
+              os.path.normcase(find_backup_root(d)) == os.path.normcase(d))
+
+
+t_backup_root()
 
 # ---------------------------------------------------------------- 结论
 print()
