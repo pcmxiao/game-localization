@@ -36,6 +36,21 @@ and they solve real problems. This pipeline targets the gaps they leave:
 | 4 | **Spreadsheet paste** | Usually not addressed | Built-in detection; `--dry` pinpoints the exact row |
 | 5 | **Content policy** | All-or-nothing | System text and sensitive content handled separately; skips are recorded |
 | 6 | **Pre-release cleanup** | Usually not addressed | Dedicated checklist with a never-delete list |
+| 7 | **Batch atomicity** | Partial patches on failure | Precheck the **whole batch** read-only, then write. A single bad row leaves the disk untouched (exit `6`) |
+
+### On gap 7
+
+Validating and writing used to happen in the same pass, so a bad row at position 3
+left positions 1–2 already on disk — a half-applied patch, which is worse than no
+patch. Exit codes now separate the two failure classes, because they need
+opposite responses:
+
+| Code | Meaning | What to do |
+|---|---|---|
+| `0` | Success / dry-run clean | Carry on |
+| `5` | Read-back mismatch — wrote something else | **Restore from backup now** |
+| `6` | Precheck failed, nothing written | Fix the sheet and rerun |
+| `7` | Write/read-back stage failed | Restore the affected files |
 
 ### On gap 2
 
@@ -170,6 +185,14 @@ columns** (this happened twice in practice and is invisible to the eye);
 python scripts/audit.py --root <game-dir> --backup <backup-dir> --report audit.json
 ```
 
+`--backup` takes the timestamped backup directory *or* the `gameloc_backups/`
+parent — it descends automatically and picks the newest when there are several.
+
+**If the backup yields zero visible strings, the audit exits non-zero instead of
+reporting.** A silent zero looks like a pass; it is the one result you must never
+trust. (This was a real bug: passing the parent directory produced a clean-looking
+report in which every string was filed as "new entry".)
+
 Compares against the backup and reports four buckets:
 
 ```
@@ -227,7 +250,12 @@ game-localization/
 │   ├── extract_sheet.py          # Extract into the translation sheet
 │   ├── apply_sheet.py            # Fail-closed write-back
 │   ├── audit.py                  # Verify against the backup
-│   └── selftest.py               # 74 assertions, one per real-world failure
+│   └── selftest.py               # 85 assertions, one per real-world failure
+├── tests/                        # End-to-end tests (pytest)
+│   ├── conftest.py               # Fixtures: minimal synthetic games
+│   ├── test_audit_backup.py      # Backup resolution + false all-clear guard
+│   ├── test_apply_atomic.py      # Batch atomicity + exit codes
+│   └── test_paths.py             # Path escaping + extract→write round-trip
 ├── references/
 │   ├── carriers.md               # Where each engine keeps its text
 │   ├── freeze-restore.md         # Control-code freezing and restoring
@@ -239,6 +267,17 @@ game-localization/
 └── evals/
     └── evals.json
 ```
+
+## Tests
+
+```bash
+python scripts/selftest.py     # zero dependencies — the core assertions
+python -m pytest tests/        # end-to-end (needs pytest, test-only)
+```
+
+Both run on every push in CI across Linux and Windows, Python 3.8 → 3.13.
+Every fixture builds a tiny synthetic game on the spot — **this repo contains no
+game text**, so the tests stay independent of any title's copyright.
 
 ---
 

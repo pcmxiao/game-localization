@@ -126,4 +126,12 @@ def myengine_extract(data_root, rows):
 2. 抽出来的每条都能被 `set_path` 写回去 —— 用 `apply_sheet.py --dry` 验
 3. 控制码正则能同时匹配正例与反例
 
-放进 `tests/`，跑 `python -m pytest tests/`。
+写进 `tests/`，跑：
+
+```bash
+python -m pytest tests/        # 需要 pytest，仅测试用
+python scripts/selftest.py     # 零依赖，核心断言都在这里
+```
+
+`tests/` 里的每个夹具都是**现场构造**的最小 JSON —— 这个仓库不含任何游戏文本。
+新增引擎时照着 `tests/conftest.py` 的 `make_rmmz_game()` 加一个构造函数即可。

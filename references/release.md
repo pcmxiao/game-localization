@@ -64,3 +64,32 @@ gameloc_backups/
 而且可能涉及版权。
 
 分享时只报数字和分类统计，不要贴具体条目。
+
+## 审计时 `--backup` 怎么指
+
+`apply_sheet.py` 的备份布局是：
+
+```
+gameloc_backups/
+└── rpgmaker-mvmz_20260808_213015/     ← 时间戳目录
+    └── data/                          ← 真正的数据目录
+        ├── System.json
+        └── Map001.json
+```
+
+下面三种指法都行，`audit.py` 会自动向下探测：
+
+```bash
+--backup .../gameloc_backups                                   # 父目录
+--backup .../gameloc_backups/rpgmaker-mvmz_20260808_213015     # 时间戳目录
+--backup .../gameloc_backups/rpgmaker-mvmz_20260808_213015/data # 数据目录
+```
+
+有多份备份时取**最新**的一份（时间戳按字典序即时间序）。
+
+**如果备份抽出 0 条可见文本，`audit.py` 会直接报错退出（码 7）**，
+不会给一份「全部是新增条目」的报告。看到这个错误时检查：
+
+- `--backup` 是不是指到了别的游戏、或空目录
+- 备份是不是根本没做成
+- 备份的引擎和当前的引擎是不是同一个
