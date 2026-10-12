@@ -28,9 +28,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gameloc_core import (  # noqa: E402
-    ENGINES, SHEET_FIELDS, SheetError, eprint, open_sheet_for_write,
+    ENGINES, SHEET_FIELDS, eprint, escape_path_token, open_sheet_for_write,
     read_json, resolve_engine, script_score,
 )
+# 注意：detect_engine 用**函数内**导入而不是模块级导入。
+# detect_engine 会 import gameloc_core，extract_sheet 也被 audit 导入 ——
+# 放模块级容易绕成循环导入，而且这里只在两个分支里用得到。
 
 # --------------------------------------------------------------------------
 # RPG Maker MV / MZ
@@ -199,14 +202,39 @@ GENERIC_LOCALE_DIRS = ("locale", "locales", "lang", "i18n", "translations",
                        "po", "resources")
 
 
+def _is_text_field(key):
+    """字段名是否该翻。
+
+    白名单按末段匹配（'menu.title' → 'title' 命中），跳过名单按整串匹配
+    （'sprite.id' 整串不在跳过名单里，但末段 'id' 会命中白名单吗？
+    不会 —— 'id' 本来就不在白名单里，所以无需特殊处理）。
+    """
+    k = str(key).strip().lower()
+    if k in GENERIC_SKIP_FIELDS:
+        return False
+    if k in GENERIC_TEXT_FIELDS:
+        return True
+    # 带命名空间的扁平键：'menu.title' / 'ui.button.label'
+    tail = k.rsplit(".", 1)[-1]
+    return tail in GENERIC_TEXT_FIELDS and tail not in GENERIC_SKIP_FIELDS
+
+
 def _generic_walk(node, prefix, sink, carrier):
     if isinstance(node, dict):
         for k, v in node.items():
-            if k in GENERIC_SKIP_FIELDS:
-                continue
-            child = f"{prefix}.{k}" if prefix else str(k)
+            # 键名里的 '.' / '[' / ']' 必须转义，否则写回时会被当成路径分隔符 ——
+            # `{"ui.title": ...}` 这种扁平表会被切成 ui→title 两个键，
+            # 若恰好同时存在嵌套同名结构，就静默写到错的位置。
+            child = f"{prefix}.{escape_path_token(k)}" if prefix else escape_path_token(k)
             if isinstance(v, str):
-                if k in GENERIC_TEXT_FIELDS:
+                # 跳过名单只作用于**字符串叶子**。它挡的是「值是人样文字但
+                # 属于标识符」的字段；如果拿它去挡整个子树，`{"sprite": {"name": …}}`
+                # 里的 name 就永远抽不到了（旧实现有这个问题）。
+                if k in GENERIC_SKIP_FIELDS:
+                    continue
+                # 白名单按**最后一段**匹配：扁平表里的键常写成 'menu.title' 这种
+                # 带命名空间的形式，只匹配整串会整条漏掉。
+                if _is_text_field(k):
                     sink.append((child, carrier, v))
                 # 非白名单字段不翻 —— 宁可漏，不要把标识符翻坏
             else:

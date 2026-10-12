@@ -143,7 +143,7 @@ _reg(EngineProfile(
     title="RPG Maker XP / VX / VX Ace",
     layer="L1",
     detect=lambda r: 1.0 if _has(r, "Data", "System.rxdata") or _has(r, "Data", "System.rvdata2") else 0.0,
-    escape=re.escape(r"\C[") and r'\\[A-Za-z]+|\$[A-Za-z]+(?:\[\d+\])?|\^|\{[^}]*\}',
+    escape=r'\\[A-Za-z]+|\$[A-Za-z]+(?:\[\d+\])?|\^|\{[^}]*\}',
     root_globs=["Data"],
     notes="Ruby Marshal 二进制，需先解包再处理；可能裹在 .rgss3a 里。",
 ))
@@ -282,6 +282,45 @@ _reg(EngineProfile(
 
 _TOKEN_RE = re.compile(r"([^\[\]]*)((?:\[\d+\])*)")
 
+# 路径转义：`\.` 表示键名里的字面点号，`\[` `\]` 表示键名里的字面方括号。
+# 见 parse_path —— 没有它，键名本身含 '.' 的 JSON 无法寻址。
+_ESC_DOT = "\x00DOT\x00"
+_ESC_LB = "\x00LB\x00"
+_ESC_RB = "\x00RB\x00"
+
+
+def escape_path_token(name):
+    """把一个键名编码成路径片段，使其能被 parse_path 还原。
+
+    抽取器在拼 path 时必须用它，否则键名里的 '.' / '[' / ']' 会被
+    当成路径分隔符，导致写回落到错误的键上（或抛「路径不存在」）。
+    """
+    return (name.replace("\\", "\\\\")
+                .replace(".", "\\.")
+                .replace("[", "\\[")
+                .replace("]", "\\]"))
+
+
+def split_path(path):
+    """按未转义的点号切分路径。`a\\.b.c` → ['a.b', 'c']。"""
+    parts, buf, i = [], [], 0
+    while i < len(path):
+        ch = path[i]
+        if ch == "\\" and i + 1 < len(path):
+            buf.append(_ESC_DOT if path[i + 1] == "." else
+                       _ESC_LB if path[i + 1] == "[" else
+                       _ESC_RB if path[i + 1] == "]" else path[i + 1])
+            i += 2
+            continue
+        if ch == ".":
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
 
 def parse_path(path):
     """把 'events[6].pages[1].parameters[0][2]' 解析成 token 序列。
@@ -291,15 +330,23 @@ def parse_path(path):
     为什么要严格：早先用 re.findall(r'([^\\[\\]]+)|\\[(\\d+)\\]', path) 解析
     'terms.messages.autosave' 时，会把整串当成一个键，然后在根字典里静默新建
     这个键 —— JSON 依然合法，不报错，diff 才知道出了事。
+
+    转义：键名里的字面点号/方括号用 `\\.` `\\[` `\\]` 表示。抽取器负责用
+    `escape_path_token()` 编码。没有转义时，键名含 '.' 的 JSON（如
+    `{"ui.title": ...}` 这种扁平表）会被切成两个键 —— 若恰好同时存在嵌套
+    的同名结构，就会静默写到错误的位置。
     """
     tokens = []
-    for part in path.split("."):
+    for part in split_path(path):
         if part == "":
             continue
+        # 先把转义占位符还原，再判断方括号下标（下标语法只对未转义括号生效）
         m = _TOKEN_RE.fullmatch(part)
         if not m:
             raise SheetError(f"路径片段无法解析: {part!r} (完整路径 {path!r})")
-        name, idxs = m.group(1), re.findall(r"\[(\d+)\]", m.group(2))
+        name = (m.group(1).replace(_ESC_DOT, ".").replace(_ESC_LB, "[")
+                .replace(_ESC_RB, "]"))
+        idxs = re.findall(r"\[(\d+)\]", m.group(2))
         if name:
             tokens.append(("key", name))
         for i in idxs:
@@ -464,6 +511,65 @@ def backup_dir(paths, dest_root, tag="backup"):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             shutil.copy2(p, target)
     return dest
+
+
+def _looks_like_data_dir(path, probe_exts=(".json",)):
+    """目录里是否直接躺着数据文件（而不是又一层子目录）。"""
+    try:
+        entries = os.listdir(path)
+    except OSError:
+        return False
+    return any(e.lower().endswith(probe_exts) for e in entries)
+
+
+def find_backup_root(backup, probe_exts=(".json",), max_depth=4):
+    """在备份目录里找到真正的数据根。
+
+    背景：`backup_dir()` 产出的是 `<dest>/<tag>_<时间戳>/<原名>/`，
+    所以用户传进来的可能是：
+      · 时间戳目录本身       → 它下面就是 data/，还要再下一层
+      · `gameloc_backups/`   → 时间戳目录的父目录，要下两层
+      · 直接就是 data/       → 已经对了
+
+    旧实现只往下探**一层**，而且要求候选目录**直接**含 `.json`。传父目录时
+    探测不触发，返回的目录里一条条目都抽不出来 —— 报告于是显示「备份可见
+    条目: 0」，把所有文本都归到「新增条目」，看起来像是「全部通过」。
+    一个静默的假全清，比报错危险得多。
+
+    这里改成逐层广度优先：先看自己是不是数据根，再看下一层，最多 max_depth
+    层。同一层有多个候选时取名字最大的（时间戳目录按字典序即时间序，
+    即最新的一份）。找不到就返回原路径，由调用方决定怎么处理
+    （audit.py 会对「抽出 0 条」硬报错）。
+    """
+    backup = os.path.abspath(backup)
+    if not os.path.isdir(backup):
+        return backup
+
+    frontier = [backup]
+    for _ in range(max_depth):
+        for cand in frontier:
+            if _looks_like_data_dir(cand, probe_exts):
+                return cand
+        nxt = []
+        for cand in frontier:
+            try:
+                for name in sorted(os.listdir(cand)):
+                    sub = os.path.join(cand, name)
+                    if os.path.isdir(sub) and not name.startswith("."):
+                        nxt.append(sub)
+            except OSError:
+                continue
+        if not nxt:
+            break
+        # 同一层多个候选（多份时间戳备份）取最新的一份，不要混着看
+        if len(nxt) > 1:
+            nxt = [max(nxt, key=os.path.basename)]
+        frontier = nxt
+
+    for cand in frontier:
+        if _looks_like_data_dir(cand, probe_exts):
+            return cand
+    return backup
 
 
 # --------------------------------------------------------------------------

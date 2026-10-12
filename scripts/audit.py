@@ -42,7 +42,8 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gameloc_core import (  # noqa: E402
-    SheetError, eprint, open_sheet, read_json, resolve_engine, script_score,
+    SheetError, eprint, find_backup_root, open_sheet, resolve_engine,
+    script_score,
 )
 import extract_sheet  # noqa: E402
 
@@ -116,7 +117,6 @@ def triage_identical(text):
 
 def extract_map(engine_key, data_root):
     """用指定引擎的抽取器跑一遍，返回 {(file, path): src_text}。"""
-    from gameloc_core import ENGINES
     extractor = extract_sheet.EXTRACTORS.get(engine_key)
     if extractor is None:
         raise SheetError(f"引擎 {engine_key} 没有内置抽取器，无法确定审计范围")
@@ -174,14 +174,10 @@ def main():
         roots = find_data_roots(root, engine)
         data_root = roots[0] if roots else root
 
-    backup = os.path.abspath(args.backup)
-    # 备份里通常还套了一层同名目录
-    if not any(f.endswith(".json") for f in os.listdir(backup)):
-        for cand in sorted(os.listdir(backup)):
-            sub = os.path.join(backup, cand)
-            if os.path.isdir(sub) and any(f.endswith(".json") for f in os.listdir(sub)):
-                backup = sub
-                break
+    backup = find_backup_root(args.backup)
+    if not os.path.isdir(backup):
+        eprint(f"备份目录不存在: {backup}")
+        return 4
 
     if engine.key not in extract_sheet.EXTRACTORS:
         eprint(f"引擎 {engine.key} 没有内置抽取器，audit 无法确定审计范围。\n"
@@ -197,6 +193,26 @@ def main():
     bak_map, _ = extract_map(engine.key, backup)
     print(f"  当前可见条目: {len(cur_map)}")
     print(f"  备份可见条目: {len(bak_map)}")
+
+    # ---- 空备份守卫 ----
+    #
+    # 备份抽出 0 条而当前非空时，所有条目都会走 `orig is None` 分支，
+    # 报告变成「全部是新增条目、已改动 0」—— 看着像通过，其实什么都没比。
+    # 这是最危险的一种结果：**假全清**。宁可报错也不要给一份无意义的报告。
+    if not bak_map and cur_map:
+        eprint("")
+        eprint("!! 备份里一条可见文本都没抽到，无法做对比 —— 已中止。")
+        eprint(f"   备份路径: {backup}")
+        eprint(f"   当前条目: {len(cur_map)}")
+        eprint("")
+        eprint("   继续跑下去只会得到一份「全部是新增条目」的假报告。")
+        eprint("   常见原因：")
+        eprint("     · --backup 指到了备份的父目录而不是数据目录")
+        eprint("       （会自动向下探测，但层级太深或结构异常时找不到）")
+        eprint("     · 备份根本没做成 / 备份的是别的游戏")
+        eprint("     · --data-root 指的是当前游戏而非备份的对应目录")
+        eprint("   用 --backup 指向备份里的数据目录（含 System.json 那一层）再试。")
+        return 7
 
     sheet = sheet_status_map(args.sheet)
 
